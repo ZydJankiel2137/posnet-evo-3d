@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Posnet EVO — Spin viewer (rendery produktowe)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 38%, #20212b 0%, #0e0e15 56%, #050506 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #fff; user-select: none; -webkit-user-select: none;
+  }
+  .top-bar {
+    position: absolute; top: 0; left: 0; right: 0; padding: 20px 30px;
+    display: flex; justify-content: space-between; align-items: center;
+    background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 100%);
+    z-index: 10; pointer-events: none;
+  }
+  .logo { font-size: 21px; font-weight: 800; letter-spacing: 3px; }
+  .logo span { color: #d32f2f; }
+  .subtitle { font-size: 11px; color: #888; letter-spacing: 2px; text-transform: uppercase; }
+
+  /* Scena spin */
+  #stage {
+    position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    cursor: grab; touch-action: none;
+  }
+  #stage.dragging { cursor: grabbing; }
+  #frame {
+    max-width: 78vw; max-height: 74vh; object-fit: contain;
+    filter: drop-shadow(0 30px 60px rgba(0,0,0,0.6));
+    pointer-events: none; transition: opacity 0.12s linear;
+  }
+  /* delikatna „tafla" pod produktem */
+  #stage::after {
+    content: ''; position: absolute; bottom: 14%; width: 46vw; height: 60px;
+    background: radial-gradient(ellipse, rgba(0,0,0,0.5), transparent 70%);
+    filter: blur(8px); z-index: -1;
+  }
+
+  .caption {
+    position: absolute; bottom: 118px; left: 50%; transform: translateX(-50%);
+    text-align: center; font-size: 13px; color: #c9c9d2; letter-spacing: 0.4px;
+    background: rgba(16,16,22,0.6); padding: 8px 18px; border-radius: 20px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.06); white-space: nowrap;
+  }
+  .caption b { color: #fff; font-weight: 600; }
+
+  /* Pasek sterowania */
+  .controls {
+    position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(16,16,22,0.86); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    padding: 8px 10px; border-radius: 50px; z-index: 10;
+    border: 1px solid rgba(255,255,255,0.06); box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .btn {
+    background: transparent; border: 1px solid rgba(255,255,255,0.08); color: #fff;
+    padding: 10px 16px; border-radius: 30px; cursor: pointer; font-size: 12.5px;
+    font-weight: 500; transition: all .2s ease; font-family: inherit;
+  }
+  .btn:hover { background: rgba(211,47,47,0.2); border-color: rgba(211,47,47,0.5); }
+  .btn.primary { background: #d32f2f; border-color: #d32f2f; min-width: 96px; }
+  .btn.primary:hover { background: #b71c1c; }
+  .counter { font-size: 12px; color: #aaa; padding: 0 12px; min-width: 52px; text-align: center; letter-spacing: 1px; }
+
+  /* Miniatury */
+  .thumbs {
+    position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 8px; z-index: 10;
+  }
+  .thumbs img {
+    width: 64px; height: 48px; object-fit: cover; border-radius: 6px; cursor: pointer;
+    border: 2px solid transparent; opacity: 0.5; transition: all .2s ease; background: #15151c;
+  }
+  .thumbs img:hover { opacity: 0.85; }
+  .thumbs img.active { opacity: 1; border-color: #d32f2f; }
+
+  .hint {
+    position: absolute; bottom: 30px; left: 30px; color: #555; font-size: 11px;
+    z-index: 10; letter-spacing: 0.4px; pointer-events: none;
+  }
+  .note {
+    position: absolute; top: 78px; left: 30px; color: #5a5a64; font-size: 10px;
+    max-width: 260px; line-height: 1.5; z-index: 10; pointer-events: none;
+  }
+  #loader {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; z-index: 100; background: #0a0a10; transition: opacity .5s ease;
+  }
+  #loader.hidden { opacity: 0; pointer-events: none; }
+  .spinner { width: 38px; height: 38px; border: 3px solid rgba(255,255,255,.08); border-top-color: #d32f2f; border-radius: 50%; animation: sp .9s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .loader-text { color: #888; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+
+  @media (max-width: 768px) {
+    .thumbs { display: none; }
+    .subtitle, .hint, .note { display: none; }
+    #frame { max-width: 92vw; max-height: 60vh; }
+    .caption { bottom: 100px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loader"><div class="spinner"></div><div class="loader-text">Ładowanie klatek…</div></div>
+
+<div class="top-bar">
+  <div class="logo">POSNET<span> EVO</span></div>
+  <div class="subtitle">Spin viewer — rendery produktowe</div>
+</div>
+
+<div class="note">
+  Viewer oparty na <b style="color:#888">prawdziwych renderach</b> EVO (sekwencja klatek).
+  Dla płynnego obrotu 360° podmień klatki w tablicy <code>FRAMES</code> na pełną
+  sekwencję (24–36 ujęć jednego obrotu) — patrz komentarz w kodzie.
+</div>
+
+<div id="stage">
+  <img id="frame" alt="Posnet EVO" draggable="false">
+</div>
+
+<div class="caption" id="caption"></div>
+
+<div class="thumbs" id="thumbs"></div>
+
+<div class="controls">
+  <button class="btn" id="prev">‹ Klatka</button>
+  <button class="btn primary" id="play">⏸ Pauza</button>
+  <button class="btn" id="next">Klatka ›</button>
+  <div class="counter" id="counter">1 / 7</div>
+</div>
+
+<div class="hint">Przeciągnij w bok — obrót · Strzałki ← → · Spacja — pauza</div>
+
+<script>
+// ===========================================================
+// POSNET EVO — Spin viewer (image-based, vanilla JS)
+// Mechanika: przeciąganie w bok przewija sekwencję klatek
+// (iluzja obrotu). Autoplay + miniatury + strzałki.
+//
+// >>> PODMIANA NA PEŁNY OBRÓT 360°:
+//     Wstaw do assets/ klatki spójnego obrotu (np. 01.jpg … 36.jpg)
+//     i podmień tablicę FRAMES poniżej (ścieżka + krótki podpis).
+//     Im więcej klatek równomiernie co ~10–15°, tym płynniejszy spin.
+// ===========================================================
+
+// Klatki = prawdziwe rendery produktowe EVO (7 ujęć z galerii).
+// To NIE jest jeszcze spójny obrót 360° — to przegląd ujęć produktu.
+const FRAMES = [
+  { src: 'assets/EVO-6.jpg', cap: '<b>Profil</b> — ergonomiczny korpus, porty boczne' },
+  { src: 'assets/EVO-2.jpg', cap: '<b>Ujęcie 3/4</b> — bryła i menu kafelkowe' },
+  { src: 'assets/EVO-5.jpg', cap: '<b>Widok z góry</b> — pełny układ: drukarka, NFC, ekran' },
+  { src: 'assets/EVO-1.jpg', cap: '<b>Ujęcie 3/4</b> — ekran operatora i porty boczne' },
+  { src: 'assets/EVO-4.jpg', cap: '<b>Ujęcie 3/4</b> — dwa ekrany (operator + klient)' },
+  { src: 'assets/EVO-3.jpg', cap: '<b>Ujęcie 3/4</b> — ekran klienta „EVO 1.01"' },
+  { src: 'assets/EVO-7.jpg', cap: '<b>Detal</b> — pokrywa drukarki: wytłoczone POSNET + NFC' }
+];
+
+const frameEl   = document.getElementById('frame');
+const captionEl = document.getElementById('caption');
+const counterEl = document.getElementById('counter');
+const thumbsEl  = document.getElementById('thumbs');
+const stage     = document.getElementById('stage');
+const playBtn   = document.getElementById('play');
+
+let index = 0;
+let playing = true;
+let autoTimer = null;
+const AUTO_MS = 1400;
+
+// --- Preload wszystkich klatek, potem ukryj loader ---
+let loaded = 0;
+const imgs = FRAMES.map(f => {
+  const im = new Image();
+  im.onload = im.onerror = () => {
+    if (++loaded === FRAMES.length) {
+      document.getElementById('loader').classList.add('hidden');
+    }
+  };
+  im.src = f.src;
+  return im;
+});
+
+// --- Miniatury ---
+FRAMES.forEach((f, i) => {
+  const t = document.createElement('img');
+  t.src = f.src; t.draggable = false;
+  t.addEventListener('click', () => { goto(i); stopAuto(); });
+  thumbsEl.appendChild(t);
+});
+
+function render() {
+  // ustawiamy klatkę bezpośrednio (bez rAF — odporne na środowiska bez animation frame)
+  frameEl.src = FRAMES[index].src;
+  captionEl.innerHTML = FRAMES[index].cap;
+  counterEl.textContent = (index + 1) + ' / ' + FRAMES.length;
+  [...thumbsEl.children].forEach((t, i) => t.classList.toggle('active', i === index));
+}
+function goto(i) { index = ((i % FRAMES.length) + FRAMES.length) % FRAMES.length; render(); }
+const next = () => goto(index + 1);
+const prev = () => goto(index - 1);
+
+// --- Autoplay ---
+function startAuto() {
+  stopAuto();
+  autoTimer = setInterval(next, AUTO_MS);
+  playing = true; playBtn.textContent = '⏸ Pauza';
+}
+function stopAuto() {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null; playing = false; playBtn.textContent = '▶ Odtwórz';
+}
+function togglePlay() { playing ? stopAuto() : startAuto(); }
+
+// --- Drag-to-rotate (mysz + touch) ---
+let dragging = false, startX = 0, startIndex = 0;
+const STEP_PX = 70; // px przeciągnięcia na zmianę klatki
+
+function pointerDown(x) { dragging = true; startX = x; startIndex = index; stage.classList.add('dragging'); stopAuto(); }
+function pointerMove(x) {
+  if (!dragging) return;
+  const delta = Math.round((x - startX) / STEP_PX);
+  if (delta !== 0) goto(startIndex + delta);
+}
+function pointerUp() { dragging = false; stage.classList.remove('dragging'); }
+
+stage.addEventListener('mousedown', e => pointerDown(e.clientX));
+window.addEventListener('mousemove', e => pointerMove(e.clientX));
+window.addEventListener('mouseup', pointerUp);
+stage.addEventListener('touchstart', e => pointerDown(e.touches[0].clientX), { passive: true });
+stage.addEventListener('touchmove', e => pointerMove(e.touches[0].clientX), { passive: true });
+stage.addEventListener('touchend', pointerUp);
+
+// --- Przyciski + klawiatura ---
+document.getElementById('next').addEventListener('click', () => { next(); stopAuto(); });
+document.getElementById('prev').addEventListener('click', () => { prev(); stopAuto(); });
+playBtn.addEventListener('click', togglePlay);
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { next(); stopAuto(); }
+  else if (e.key === 'ArrowLeft') { prev(); stopAuto(); }
+  else if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+});
+
+render();
+startAuto();
+</script>
+</body>
+</html>
